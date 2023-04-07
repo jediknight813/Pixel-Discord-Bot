@@ -1,0 +1,6 @@
+node_modules
+.venv
+.env
+package-lock.json
+src/config.py
+src/tools
