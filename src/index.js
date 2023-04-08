@@ -1,5 +1,5 @@
 import { Client, IntentsBitField, Collection, Events } from "discord.js";
-import { joinVoiceChannel, createAudioResource, createAudioPlayer, NoSubscriberBehavior, VoiceConnectionStatus, getVoiceConnection, entersState } from "@discordjs/voice";
+import { joinVoiceChannel, createAudioResource, createAudioPlayer, NoSubscriberBehavior, VoiceConnectionStatus, getVoiceConnection, entersState, getVoiceConnections } from "@discordjs/voice";
 import { Player } from "discord-player";
 import { EndBehaviorType, VoiceReceiver } from '@discordjs/voice';
 import * as prism from 'prism-media';
@@ -23,6 +23,32 @@ const client = new Client({
         IntentsBitField.Flags.GuildMessageReactions,
     ]
 })
+
+
+const handlePixelTalking = async (aiResponse, player, voiceChannel) => {
+
+    const response={response: aiResponse.data}
+
+    if (aiResponse.data.split(' ').length < 100) {
+
+        axios.post(process.env.apiUrl+'generateAudio', response).then(aiAudioResponse => {
+            const resource = createAudioResource('/Users/connor/projects/Pixel-Discord-Bot/src/response.mp3');
+            player.play(resource);
+        })
+
+    } else {
+        if (aiResponse.data.length > 1900) {
+            const list = aiResponse.data.split(' ')
+            const half = Math.ceil(list.length / 2);    
+            const firstHalf = list.slice(0, half)
+            const secondHalf = list.slice(half)
+            voiceChannel.send('<@'+userId+'> '+firstHalf.join(" "))
+            voiceChannel.send(secondHalf.join(" "))
+        } else {
+            voiceChannel.send('<@'+userId+'> '+aiResponse.data)
+        }
+    }
+}
 
 
 client.on("ready", async (event) => {
@@ -106,42 +132,86 @@ client.on('voiceStateUpdate', async (message, before, after) => {
                         console.log(`✅ Recorded ${filename}`);
                         receiver.subscriptions.clear()
                         listening = false
-                        handleResponse()
+                        handleResponse(userId)
                     }
                 });
 
             })
 
 
-            const handleResponse = () => {
+            const handleResponse = (userId) => {
                 const data={filename: '../question.ogg'}
                 voiceConnection.receiver.subscriptions.clear()
                 const voiceChannel = client.channels.cache.get(message.member.voice.channelId);
 
-
+                // transcribe what the user said.
                 axios.post(process.env.apiUrl+'transcribe', data).then(response => {
                             
                     if (response.data == 'Failed') return
                     const question={question: response.data}
 
-                    const transcribechannel = client.channels.cache.get('1093567420532281456');
-                    if (response.data != '') transcribechannel.send(response.data);
+                    axios.post(process.env.apiUrl+'getTextCommand', question).then(TextCommand => {
 
-                    const response_list = response.data.toLowerCase().replace(/[^a-zA-Z0-9 ]/g, '').split(" ")
+                        const transcribechannel = client.channels.cache.get('1093567420532281456');
+                        transcribechannel.send(TextCommand.data);
+                        transcribechannel.send(response.data);
 
-                    if (response_list.length > 3  && response_list[2] == "pixel" || response_list[1] == "pixel") {
 
-                        axios.post(process.env.apiUrl+'getPixelResponse', question).then(aiResponse => {
-                            const response={response: aiResponse.data}
-                            
-                            voiceChannel.send(aiResponse.data)
+                        // if there is no command just respond to what the user said.
+                        if (TextCommand.data == 'unknown') {
+                            axios.post(process.env.apiUrl+'getPixelResponse', question).then(aiResponse => {
+                                handlePixelTalking(aiResponse, player, voiceChannel)
+                            }
+                            )
 
-                            axios.post(process.env.apiUrl+'generateAudio', response).then(aiAudioResponse => {
-                                const resource = createAudioResource('/Users/connor/projects/Pixel-Discord-Bot/src/response.mp3');
-                                player.play(resource);
+                        }
+
+                        if (TextCommand.data == "video search") {
+                            const question={question: response.data}
+                            axios.post(process.env.apiUrl+'getPixelResponse', question).then(aiResponse => {
+                                voiceChannel.send('<@'+userId+'> '+aiResponse.data)
+                                handlePixelTalking(aiResponse, player, voiceChannel)
+                                const question={question: aiResponse.data}
+                                axios.post(process.env.apiUrl+'getYoutubeVideo', question).then(url => {
+                                    if (url.data != 'question contains videos') {
+                                        voiceChannel.send(url.data)
+                                    }
+                                })
                             })
-                        })
-                    }
+                        }
+
+
+                        if (TextCommand.data == "leave channel") {
+                            const voiceChannel = message.member.voice.channel;
+                            var botInChannel = false
+                        
+                            voiceChannel.members.forEach(user => {
+                                if (user.id == '1092968685196542012') botInChannel = true
+                            })
+            
+                            const voiceConnection = getVoiceConnection(voiceChannel.guild.id);
+                            voiceConnection.destroy()
+                        }
+
+                        if (TextCommand.data == "make an image") {
+                            const aiResponse = {data: 'Sure, just give me a minute.'}
+                            handlePixelTalking(aiResponse, player, voiceChannel)
+            
+                            const question={question: "make a text to image prompt for this: "+response.data}
+                            
+                            axios.post(process.env.apiUrl+'getPixelResponse', question).then(aiPrompt => {
+                                const question={question: aiPrompt.data}
+                                transcribechannel.send(aiPrompt.data);
+            
+                                axios.post(process.env.apiUrl+'generateImage', question).then(TextCommand => {
+                                    voiceChannel.send('<@'+userId+'>')
+                                    voiceChannel.send({files: ['./src/images/1.png']})
+                                })
+                            })
+                        }
+                     })
+
+  
 
                 }).catch(error => {
                     console.error('transcribe failed');
@@ -163,7 +233,7 @@ client.on('messageCreate', async message => {
     if (message.content.startsWith('<@1092968685196542012>') && message.channel.name == 'pixel-bot-chat' || message.content.startsWith('<@1092968685196542012>') && message.channel.name == 'pixel-bot-test-chat') { 
 
         var userMessage = message.content
-        userMessage = userMessage.replace("<@1092968685196542012>", "")
+        userMessage = userMessage.replace("<@1092968685196542012> ", "")
 
         userMessage = "hi pixel "+message.content
         const question={question: userMessage}
@@ -174,68 +244,89 @@ client.on('messageCreate', async message => {
             transcribechannel.send(TextCommand.data);
         
 
-        if (TextCommand.data == 'unknown') {
-            message.channel.sendTyping()
-            const question={question: message.content}
-            axios.post(process.env.apiUrl+'getPixelResponse', question).then(aiResponse => {
-                message.reply(aiResponse.data)
-            })
-        }
-
-        if (TextCommand.data == "make an image") {
-            message.channel.sendTyping()
-            message.reply("Sure, just give me a minute!")
-
-            const question={question: "make a text to image prompt for this: "+message.content}
-            
-            axios.post(process.env.apiUrl+'getPixelResponse', question).then(aiPrompt => {
-                const question={question: aiPrompt.data}
-                transcribechannel.send(aiPrompt.data);
-
-                axios.post(process.env.apiUrl+'getImageToImagePrompt', question).then(TextCommand => {
-                    message.reply({files: ['./src/images/1.png']})
-                    transcribechannel.send(TextCommand.data);
+            if (TextCommand.data == 'unknown') {
+                message.channel.sendTyping()
+                const question={question: message.content}
+                axios.post(process.env.apiUrl+'getPixelResponse', question).then(aiResponse => {
+                    message.reply(aiResponse.data)
                 })
-            })
-
-        }
-
-        if (TextCommand.data == "video search") {
-
-            message.channel.sendTyping()
-            const question={question: message.content}
-
-            axios.post(process.env.apiUrl+'getPixelResponse', question).then(aiResponse => {
-                message.reply(aiResponse.data)
-                const question={question: aiResponse.data}
-                axios.post(process.env.apiUrl+'getYoutubeVideo', question).then(url => {
-                    message.reply(url.data)
-                })
-
-            })
-
-        }
-
-
-        // if the text command is join channl
-        if (TextCommand.data == 'join channel') {
-            const voiceChannel = message.member.voice.channel;
-
-            // if the user is not in a voice channel, send an error message
-            if (!voiceChannel) {
-                message.react('❌');
-                return message.reply('You need to be in a voice channel to use this command!');
             }
-            
-            message.react('👍');
 
-            // join the voice channel
-            const voiceConnection = joinVoiceChannel({
-                channelId: message.member.voice.channelId,
-                guildId: message.guildId,
-                adapterCreator: message.guild.voiceAdapterCreator
-            })
-          }}
+            if (TextCommand.data == "make an image") {
+                message.channel.sendTyping()
+                message.reply("Just give me a minute!")
+
+                const question={question: "make a text to image prompt for this: "+message.content.replace('<@1092968685196542012> ', '')}
+                
+                axios.post(process.env.apiUrl+'getPixelResponse', question).then(aiPrompt => {
+                    const question={question: aiPrompt.data}
+                    transcribechannel.send(aiPrompt.data);
+
+                    axios.post(process.env.apiUrl+'generateImage', question).then(TextCommand => {
+                        message.reply({files: ['./src/images/1.png']})
+                    })
+                })
+            }
+
+
+            if (TextCommand.data == "leave channel") {
+
+                const voiceChannel = message.member.voice.channel;
+                var botInChannel = false
+                
+                voiceChannel.members.forEach(user => {
+                    if (user.id == '1092968685196542012') botInChannel = true
+                })
+
+                // if the bot is not in a voice channel, send an error message
+                if (botInChannel == false) {
+                    return message.reply('I need to be in a voice channel to use this command!');
+                } else {
+                    const voiceConnection = getVoiceConnection(voiceChannel.guild.id);
+                    voiceConnection.destroy()
+                }
+
+            }
+
+
+            if (TextCommand.data == "video search") {
+
+                message.channel.sendTyping()
+                const question={question: message.content}
+
+                axios.post(process.env.apiUrl+'getPixelResponse', question).then(aiResponse => {
+                    message.reply(aiResponse.data)
+                    const question={question: aiResponse.data}
+                    axios.post(process.env.apiUrl+'getYoutubeVideo', question).then(url => {
+                        if (url.data != 'question contains videos') {
+                            message.reply(url.data)
+                        }
+                    })
+
+                })
+
+            }
+
+
+            // if the text command is join channl
+            if (TextCommand.data == 'join channel') {
+                const voiceChannel = message.member.voice.channel;
+
+                // if the user is not in a voice channel, send an error message
+                if (!voiceChannel) {
+                    message.react('❌');
+                    return message.reply('You need to be in a voice channel to use this command!');
+                }
+                
+                message.react('👍');
+
+                // join the voice channel
+                const voiceConnection = joinVoiceChannel({
+                    channelId: message.member.voice.channelId,
+                    guildId: message.guildId,
+                    adapterCreator: message.guild.voiceAdapterCreator
+                })
+            }}
 
 
         )

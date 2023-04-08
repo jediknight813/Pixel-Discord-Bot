@@ -4,3 +4,4 @@ node_modules
 package-lock.json
 src/config.py
 src/tools
+src/vits
