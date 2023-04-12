@@ -5,3 +5,6 @@ package-lock.json
 src/config.py
 src/tools
 src/vits
+question.ogg
+src/response.mp3
+src/images/

@@ -1,16 +1,16 @@
-import { Client, IntentsBitField, Collection, Events } from "discord.js";
+import { Client, IntentsBitField } from "discord.js";
 import { joinVoiceChannel, createAudioResource, createAudioPlayer, NoSubscriberBehavior, VoiceConnectionStatus, getVoiceConnection, entersState, getVoiceConnections } from "@discordjs/voice";
-import { Player } from "discord-player";
-import { EndBehaviorType, VoiceReceiver } from '@discordjs/voice';
+import { EndBehaviorType } from '@discordjs/voice';
 import * as prism from 'prism-media';
 import { createWriteStream } from 'node:fs';
 import { pipeline } from 'node:stream';
-import axios from "axios";
+import axios, { all } from "axios";
 import dotenv from 'dotenv';
-import path from "node:path";
 
 dotenv.config()
 var listening = false
+const allowedChannels = ['pixel-bot-chat', 'pixel-bot-test-chat', 'bot-commands']
+const botId = '1092968685196542012'
 
 
 const client = new Client({
@@ -29,7 +29,7 @@ const handlePixelTalking = async (aiResponse, player, voiceChannel) => {
 
     const response={response: aiResponse.data}
 
-    if (aiResponse.data.split(' ').length < 100) {
+    if (aiResponse.data.length < 200) {
 
         axios.post(process.env.apiUrl+'generateAudio', response).then(aiAudioResponse => {
             const resource = createAudioResource('/Users/connor/projects/Pixel-Discord-Bot/src/response.mp3');
@@ -38,16 +38,28 @@ const handlePixelTalking = async (aiResponse, player, voiceChannel) => {
 
     } else {
         if (aiResponse.data.length > 1900) {
-            const list = aiResponse.data.split(' ')
-            const half = Math.ceil(list.length / 2);    
-            const firstHalf = list.slice(0, half)
-            const secondHalf = list.slice(half)
-            voiceChannel.send('<@'+userId+'> '+firstHalf.join(" "))
-            voiceChannel.send(secondHalf.join(" "))
+            var chunks = chunkString(aiResponse.data, 1900);
+            chunks.forEach(value =>  {
+                voiceChannel.send(value)
+            })
         } else {
-            voiceChannel.send('<@'+userId+'> '+aiResponse.data)
+            voiceChannel.send(aiResponse.data)
         }
     }
+}
+
+const handleContextToDatabase = (guild, context) => {
+    const response={'guild': guild, 'context': context}
+    axios.post(process.env.apiUrl+'addContextToMongoDB', response)
+}
+
+
+function chunkString(str, length) {
+    var chunks = [];
+    for (var i = 0; i < str.length; i += length) {
+      chunks.push(str.slice(i, i + length));
+    }
+    return chunks;
 }
 
 
@@ -58,9 +70,6 @@ client.on("ready", async (event) => {
 
 client.on('voiceStateUpdate', async (message, before, after) => {
 
-
-    // check if bot is in empty channel, leave if it is.
-
     var botInChannel = false
 
     const voiceChannel = message.member.voice.channel;
@@ -68,7 +77,7 @@ client.on('voiceStateUpdate', async (message, before, after) => {
     if (voiceChannel !== null) {
 
         voiceChannel.members.forEach(user => {
-            if (user.id == '1092968685196542012') botInChannel = true
+            if (user.id == botId) botInChannel = true
         })
 
 
@@ -158,9 +167,10 @@ client.on('voiceStateUpdate', async (message, before, after) => {
 
 
                         // if there is no command just respond to what the user said.
-                        if (TextCommand.data == 'unknown') {
+                        if (TextCommand.data == 'Unknown.' || TextCommand.data == 'write code' || TextCommand.data == 'find resources' || TextCommand.data == 'unknown') {
                             axios.post(process.env.apiUrl+'getPixelResponse', question).then(aiResponse => {
                                 handlePixelTalking(aiResponse, player, voiceChannel)
+                                handleContextToDatabase(voiceChannel.guildId, {'user_id': userId, 'question': response.data, 'response': aiResponse.data})
                             }
                             )
 
@@ -186,7 +196,7 @@ client.on('voiceStateUpdate', async (message, before, after) => {
                             var botInChannel = false
                         
                             voiceChannel.members.forEach(user => {
-                                if (user.id == '1092968685196542012') botInChannel = true
+                                if (user.id == botId) botInChannel = true
                             })
             
                             const voiceConnection = getVoiceConnection(voiceChannel.guild.id);
@@ -227,28 +237,42 @@ client.on('voiceStateUpdate', async (message, before, after) => {
 
 
 client.on('messageCreate', async message => {
-    console.log(message.content, message.channelId)
+
+    // check if the bot is in the voice channel
+    var botInChannel = false
+    const voiceChannel = message.member.voice.channel;
+    if (voiceChannel !== null) {
+        voiceChannel.members.forEach(user => {
+            if (user.id == botId) botInChannel = true
+        })
+    }
 
 
-    if (message.content.startsWith('<@1092968685196542012>') && message.channel.name == 'pixel-bot-chat' || message.content.startsWith('<@1092968685196542012>') && message.channel.name == 'pixel-bot-test-chat') { 
+    if (message.content.startsWith('<@'+botId+'>') && allowedChannels.includes(message.channel.name)|| message.content.startsWith('<@'+botId+'>') && botInChannel == true && message.member.id !== botId) { 
 
-        var userMessage = message.content
-        userMessage = userMessage.replace("<@1092968685196542012> ", "")
+        var userMessage
+        userMessage =  message.content.replace('<@'+botId+'>', "")
 
-        userMessage = "hi pixel "+message.content
+        userMessage = "hey Pixel "+userMessage
         const question={question: userMessage}
 
         axios.post(process.env.apiUrl+'getTextCommand', question).then(TextCommand => {
 
-            const transcribechannel = client.channels.cache.get('1093567420532281456');
-            transcribechannel.send(TextCommand.data);
-        
-
-            if (TextCommand.data == 'unknown') {
+            if (TextCommand.data == 'unknown' || TextCommand.data == 'write code') {
                 message.channel.sendTyping()
-                const question={question: message.content}
+
                 axios.post(process.env.apiUrl+'getPixelResponse', question).then(aiResponse => {
-                    message.reply(aiResponse.data)
+
+                    handleContextToDatabase(message.guildId, {'user_id': message.member.id, 'question': userMessage, 'response': aiResponse.data})
+                    if (aiResponse.data.length > 1900) {
+                        var chunks = chunkString(aiResponse.data, 1900);
+                        chunks.forEach(value =>  {
+                            message.reply(value)
+                        })
+                    } else {
+                        message.reply(aiResponse.data)
+                    }
+
                 })
             }
 
@@ -275,7 +299,7 @@ client.on('messageCreate', async message => {
                 var botInChannel = false
                 
                 voiceChannel.members.forEach(user => {
-                    if (user.id == '1092968685196542012') botInChannel = true
+                    if (user.id == botId) botInChannel = true
                 })
 
                 // if the bot is not in a voice channel, send an error message
@@ -298,7 +322,25 @@ client.on('messageCreate', async message => {
                     message.reply(aiResponse.data)
                     const question={question: aiResponse.data}
                     axios.post(process.env.apiUrl+'getYoutubeVideo', question).then(url => {
-                        if (url.data != 'question contains videos') {
+                        if (url.data != 'question contains links') {
+                            message.reply(url.data)
+                        }
+                    })
+
+                })
+            }
+
+
+            if (TextCommand.data == "find resources") {
+
+                message.channel.sendTyping()
+                const question={question: message.content}
+
+                axios.post(process.env.apiUrl+'getPixelResponse', question).then(aiResponse => {
+                    message.reply(aiResponse.data)
+                    const question={question: aiResponse.data}
+                    axios.post(process.env.apiUrl+'getDuckDuckGoSearch', question).then(url => {
+                        if (url.data != 'question contains links') {
                             message.reply(url.data)
                         }
                     })
@@ -317,11 +359,12 @@ client.on('messageCreate', async message => {
                     message.react('❌');
                     return message.reply('You need to be in a voice channel to use this command!');
                 }
-                
-                message.react('👍');
+                else {
+                    message.react('👍');
+                }
 
                 // join the voice channel
-                const voiceConnection = joinVoiceChannel({
+                joinVoiceChannel({
                     channelId: message.member.voice.channelId,
                     guildId: message.guildId,
                     adapterCreator: message.guild.voiceAdapterCreator
