@@ -1,6 +1,6 @@
 # Pixel-Discord-Bot
 
-This discord bot can join voice channels and answer questions, make images, and search youtube/web.
+This discord bot can join voice channels and answer questions with tts using ElevenLabs, make images, and search youtube/web.
 
 
 ## It can answer questions using chat-gpt.
