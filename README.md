@@ -7,7 +7,7 @@ This discord bot can join voice channels and answer questions, make images, and 
 ![Screen Shot 2023-04-12 at 2 51 55 PM](https://user-images.githubusercontent.com/17935336/231569554-67a1bbf4-0d96-4018-a255-bc86f23f64d7.png)
 
 
-## It can make images, using stable horde.
+## It can make images, using the stable horde api.
 ![Screen Shot 2023-04-12 at 2 53 07 PM](https://user-images.githubusercontent.com/17935336/231569697-34b0786a-6291-4ff0-a2fe-dbec9301cd74.png)
 
 
