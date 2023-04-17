@@ -4,13 +4,14 @@ import { EndBehaviorType } from '@discordjs/voice';
 import * as prism from 'prism-media';
 import { createWriteStream } from 'node:fs';
 import { pipeline } from 'node:stream';
-import axios, { all } from "axios";
+import axios from "axios";
 import dotenv from 'dotenv';
+import { Player } from "discord-player";
+
 
 dotenv.config()
 var listening = false
 const allowedChannels = ['pixel-bot-chat', 'pixel-bot-test-chat', 'bot-commands']
-const botId = '1092968685196542012'
 
 
 const client = new Client({
@@ -29,7 +30,7 @@ const handlePixelTalking = async (aiResponse, player, voiceChannel) => {
 
     const response={response: aiResponse.data}
 
-    if (aiResponse.data.length < 200) {
+    if (aiResponse.data.split(' ').length < 100) {
 
         axios.post(process.env.apiUrl+'generateAudio', response).then(aiAudioResponse => {
             const resource = createAudioResource('/Users/connor/projects/Pixel-Discord-Bot/src/response.mp3');
@@ -37,7 +38,7 @@ const handlePixelTalking = async (aiResponse, player, voiceChannel) => {
         })
 
     } else {
-        if (aiResponse.data.length > 1900) {
+        if (aiResponse.data.split(' ').length > 1500) {
             var chunks = chunkString(aiResponse.data, 1900);
             chunks.forEach(value =>  {
                 voiceChannel.send(value)
@@ -77,7 +78,7 @@ client.on('voiceStateUpdate', async (message, before, after) => {
     if (voiceChannel !== null) {
 
         voiceChannel.members.forEach(user => {
-            if (user.id == botId) botInChannel = true
+            if (user.id == client.user.id) botInChannel = true
         })
 
 
@@ -161,16 +162,10 @@ client.on('voiceStateUpdate', async (message, before, after) => {
 
                     axios.post(process.env.apiUrl+'getTextCommand', question).then(TextCommand => {
 
-                        const transcribechannel = client.channels.cache.get('1093567420532281456');
-                        transcribechannel.send(TextCommand.data);
-                        transcribechannel.send(response.data);
-
-
                         // if there is no command just respond to what the user said.
                         if (TextCommand.data == 'Unknown.' || TextCommand.data == 'write code' || TextCommand.data == 'find resources' || TextCommand.data == 'unknown') {
                             axios.post(process.env.apiUrl+'getPixelResponse', question).then(aiResponse => {
                                 handlePixelTalking(aiResponse, player, voiceChannel)
-                                handleContextToDatabase(voiceChannel.guildId, {'user_id': userId, 'question': response.data, 'response': aiResponse.data})
                             }
                             )
 
@@ -196,7 +191,7 @@ client.on('voiceStateUpdate', async (message, before, after) => {
                             var botInChannel = false
                         
                             voiceChannel.members.forEach(user => {
-                                if (user.id == botId) botInChannel = true
+                                if (user.id == client.user.id) botInChannel = true
                             })
             
                             const voiceConnection = getVoiceConnection(voiceChannel.guild.id);
@@ -243,15 +238,14 @@ client.on('messageCreate', async message => {
     const voiceChannel = message.member.voice.channel;
     if (voiceChannel !== null) {
         voiceChannel.members.forEach(user => {
-            if (user.id == botId) botInChannel = true
+            if (user.id == client.user.id) botInChannel = true
         })
     }
 
-
-    if (message.content.startsWith('<@'+botId+'>') && allowedChannels.includes(message.channel.name)|| message.content.startsWith('<@'+botId+'>') && botInChannel == true && message.member.id !== botId) { 
+    if (message.content.startsWith('<@'+client.user.id+'>') && allowedChannels.includes(message.channel.name)|| message.content.startsWith('<@'+client.user.id+'>') && botInChannel == true && message.member.id !== client.user.id) { 
 
         var userMessage
-        userMessage =  message.content.replace('<@'+botId+'>', "")
+        userMessage =  message.content.replace('<@'+client.user.id+'>', "")
 
         userMessage = "hey Pixel "+userMessage
         const question={question: userMessage}
@@ -299,7 +293,7 @@ client.on('messageCreate', async message => {
                 var botInChannel = false
                 
                 voiceChannel.members.forEach(user => {
-                    if (user.id == botId) botInChannel = true
+                    if (user.id == client.user.id) botInChannel = true
                 })
 
                 // if the bot is not in a voice channel, send an error message
